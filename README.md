@@ -1,46 +1,132 @@
-# Getting Started with Create React App
+# 서론
+[토스ㅣSLASH 21 - 실무에서 바로 쓰는 Frontend Clean Code](https://www.youtube.com/watch?v=edWbHp_k_9Y)을 읽고 노션에 정리해 보았습니다([링크](https://ionian-breath-903.notion.site/8925e7eb179e48b389e47d1143e429d4?pvs=4)) 더 나아가 해당 내용을 토대로 모달 컴포넌트를 설계 해보려고 합니다.
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+# 모달 컴포넌트의 추상화
+`모달` 컴포넌트를 추상화하는 목적은 복잡한 UI 로직을 단순화하여 핵심 개념만을 남기고, 재사용 가능하며 유지 보수가 용이한 코드를 작성하는 것입니다. 모달 컴포넌트를 추상화 했을 때 핵심 개념은 `열다`와 `닫다`입니다.
 
-## Available Scripts
+### 모달 컴포넌트 추상화 과정
 
-In the project directory, you can run:
+1. **상태 관리**
+   - 모달의 상태를 전역에서 관리하기 위해 Recoil의 `atom`을 사용합니다.
+   - 모달의 상태는 열려 있는 모든 모달의 리스트로 관리됩니다.
 
-### `npm start`
+2. **모달 열기와 닫기 함수**
+   - 모달을 열고 닫는 로직을 재사용 가능하도록 훅으로 추상화합니다.
+   - `useModal` 훅을 만들어 모달을 열고 닫는 기능을 제공합니다.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+### 상태 관리
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+모달의 상태를 관리하기 위해 `Recoil`을 사용하여 전역 상태를 설정합니다.
 
-### `npm test`
+```typescript
+import { ComponentProps, FunctionComponent } from 'react';
+import { atom } from 'recoil';
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+export const modalState = atom<
+  Array<{
+    Component: FunctionComponent<any>;
+    props: ComponentProps<FunctionComponent<any>>;
+  }>
+>({
+  key: '#modal',
+  default: [],
+});
+```
 
-### `npm run build`
+`modalState`는 현재 열려 있는 모달의 리스트를 관리합니다. 각 모달은 컴포넌트와 해당 컴포넌트에 전달될 props로 구성됩니다.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 모달 열기와 닫기 함수
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+모달을 열고 닫는 로직을 `useModal` 훅으로 추상화합니다.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```typescript
+import { modalState } from '@states/modal';
+import { ComponentProps, FunctionComponent, useCallback } from 'react';
+import { useRecoilState } from 'recoil';
 
-### `npm run eject`
+const useModal = () => {
+  const [modals, setModals] = useRecoilState(modalState);
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+  const openModal = useCallback(
+    <T extends FunctionComponent<any>>(Component: T, props: ComponentProps<T>) => {
+      setModals((modals) => [...modals, { Component, props }]);
+    },
+    [setModals],
+  );
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+  const closeModal = useCallback(
+    <T extends FunctionComponent<any>>(Component: T) => {
+      setModals((modals) => modals.filter((modal) => modal.Component !== Component));
+    },
+    [setModals],
+  );
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+  return {
+    modals,
+    openModal,
+    closeModal,
+  };
+};
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+export default useModal;
+```
 
-## Learn More
+- `openModal`: 특정 모달 컴포넌트를 열기 위해 사용됩니다. 모달 컴포넌트와 그에 전달될 props를 받아 상태에 추가합니다.
+- `closeModal`: 특정 모달 컴포넌트를 닫기 위해 사용됩니다. 모달 컴포넌트를 상태에서 제거합니다.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### 모달 사용 예시
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+추상화된 모달을 사용하는 방법을 보여줍니다.
+```typescript
+interface Props {
+  text: string;
+}
+
+const TestModalComponent = ({ text }: Props) => {
+  return (
+    <div>
+      <p>Modal 입니다</p>
+      <p>{text}</p>
+    </div>
+  );
+};
+
+export default TestModalComponent;
+```
+
+```typescript
+import useModal from '@hooks/useModal';
+import TestModalComponent from './ui/TestModalComponent';
+
+const Home = () => {
+  const { openModal, closeModal } = useModal();
+
+  const onOpen = () => {
+    openModal(TestModalComponent, {
+      text: 'CONTENT !!!',
+    });
+  };
+
+  const onClose = () => {
+    closeModal(TestModalComponent);
+  };
+
+  return (
+    <div>
+      <button onClick={onOpen}>모달 열기</button>
+      <button onClick={onClose}>모달 닫기</button>
+    </div>
+  );
+};
+
+export default Home;
+```
+
+- `openModal` 함수는 `TestModalComponent`와 그에 전달될 props를 받아 모달을 엽니다.
+- `closeModal` 함수는 `TestModalComponent`를 닫습니다.
+
+### 모달 컴포넌트 추상화의 장점
+
+1. **재사용성**: 동일한 모달 로직을 여러 곳에서 재사용할 수 있습니다.
+2. **유지 보수성**: 모달 로직을 한 곳에서 관리하기 때문에 유지 보수가 용이합니다.
+3. **가독성**: 모달 관련 코드를 별도의 훅으로 분리하여 코드의 가독성을 높입니다.
